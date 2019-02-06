@@ -4,7 +4,7 @@ parameters:
   wcfPRServiceId: ''
 
 ##   Description of 'Set_Operation_PR_or_Branch' steps for Windows or Unix   ##
-##   'Operation' is set to "pr" by default. It is setable at build def queue time.   ##
+##   Have to determine if the run was triggered as a PR or CI and then set 'Operation' accordingly.   ##
 ##   (Windows)If 'Operation' is set to "pr" the inline script will set the environment variable 'ghprbPullId' to the id of the executing PR.   ##
 ##   (Windows)The variable 'ghprbPullId' is then used by the 'sync-pr' script.
 ##   (Unix)If 'Operation' is set to "pr" the inline script will set the environment variable 'branchNameorPrId' to the id of the executing PR.   ##
@@ -15,19 +15,22 @@ steps:
     ##   Platform: Windows   ##
     ##   Task: Get the PR ID or Branch name.   ##
   - script: |
-      if not "%Operation%"=="branch" if not "%Operation%"=="pr" (
-        echo Operation mode was set to: %Operation%
-        echo Invalid operation mode specified.
-        set _EXITCODE=1
-        goto done
-      )
-      if '%Operation%'=='pr' (
-        echo Operation is set to: %Operation%
-        goto pr
-      )
-      if '%Operation%'=='branch' (
-        echo Operation is set to: %Operation%
-        goto branch
+      SETLOCAL EnableDelayedExpansion
+      echo Determine if this is a PR or CI triggered build.
+      echo If Build.Reason is 'PullRequest' then set 'operation to "pr".
+      echo If Build.Reason is NOT 'PullRequest' then set 'operation' to "branch".
+      echo Build.Reason is: %BUILD_REASON%
+
+      IF '%BUILD_REASON%'=='PullRequest' (
+          set _OPERATION=pr
+          echo Operation mode has been set to: !_OPERATION!
+          echo ##vso[task.setvariable variable=operation]!_OPERATION!
+          goto pr
+      ) ELSE (
+          set _OPERATION=branch
+          echo Operation mode has been set to: !_OPERATION!
+          echo ##vso[task.setvariable variable=operation]!_OPERATION!
+          goto branch
       )
 
       :pr
@@ -52,22 +55,23 @@ steps:
     ##   Platform: Unix   ##
     ##   Task: Get the PR ID or Branch name.   ##
   - bash: |
-      if [[ $OPERATION != branch && $OPERATION != pr ]]; then
-        echo "Operation mode was set to: $OPERATION"
-        echo "Invalid operation mode specified."
-        exit -1
-      fi
+      echo "Determine if this is a PR or CI triggered build."
+      echo "If 'Build.Reason' is set to 'PullRequest' then set operation mode to 'pr'."
+      echo "If 'Build.Reason' is NOT 'PullRequest' then set operation mode to 'branch'."
+      echo "Build.Reason is: $BUILD_REASON"
 
-      if [[ $OPERATION = pr ]]; then
-        echo "Operation is set to: $OPERATION"
+      if [[ $BUILD_REASON = PullRequest ]]; then
+        _OPERATION=pr
+        echo "Operation mode has been set to: $_OPERATION"
+        echo "##vso[task.setvariable variable=operation]$_OPERATION"
         echo "Parse the PR ID from environment variable 'Build.SourceBranch': $BUILD_SOURCEBRANCH"
         GETPRID=$(echo $BUILD_SOURCEBRANCH| cut -d'/' -f 3)
         echo "The PR ID is: $GETPRID"
         echo "##vso[task.setvariable variable=branchNameorPrId]$GETPRID"
-      fi
-
-      if [[ $OPERATION = branch ]]; then
-        echo "Operation is set to: $OPERATION"
+      else
+        _OPERATION=branch
+        echo "Operation mode has been set to: $_OPERATION"
+        echo "##vso[task.setvariable variable=operation]$_OPERATION"
         echo "Set the repo branch to be what build.SourceBranchName is: $BUILD_SOURCEBRANCHNAME"
         echo "##vso[task.setvariable variable=branchNameorPrId]origin/$BUILD_SOURCEBRANCHNAME"
       fi
@@ -80,10 +84,10 @@ steps:
   - powershell: |
       Write-Host "The WCF Root dir is: $env:Build_SourcesDirectory"
       Write-Host "Variable wcfPRServiceId is set to: $env:WCFPRSERVICEID"
-      Write-Host "Variable Operation is set to: $env:Operation"
+      Write-Host "Variable Operation is set to: $env:operation"
       Write-Host "Variable wcfPRServiceUri is set to: $env:WCFPRSERVICEURI"
       Write-Host "Variable branchName is set to: $env:branchName"
-      invoke-command -Scriptblock { & "$env:Build_SourcesDirectory\src\System.Private.ServiceModel\tools\scripts\sync-pr.cmd "$env:WCFPRSERVICEID $env:Operation $env:WCFPRSERVICEURI $env:branchName"" }
+      invoke-command -Scriptblock { & "$env:Build_SourcesDirectory\src\System.Private.ServiceModel\tools\scripts\sync-pr.cmd "$env:WCFPRSERVICEID $env:operation $env:WCFPRSERVICEURI $env:branchName"" }
       $LASTEXITCODE
 
     displayName: Sync_PRService_Windows
